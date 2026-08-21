@@ -32,7 +32,7 @@ class SystemSettings(BaseSettings):
     SEMANTIC_SIMILARITY_THRESHOLD: float = Field(default=0.65)
 
     # RAG & Latency Constraints
-    GROUNDING_SIMILARITY_THRESHOLD: float = Field(default=0.40)
+    GROUNDING_SIMILARITY_THRESHOLD: float = Field(default=0.60)
     TARGET_PIPELINE_LATENCY_MS: float = Field(default=200.0)
     MAX_RETRIES: int = Field(default=3)
     BACKOFF_FACTOR: float = Field(default=0.2)
