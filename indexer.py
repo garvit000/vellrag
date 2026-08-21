@@ -96,7 +96,10 @@ class VectorIndexer:
         
         logger.info(f"Loading embedding model: {embedding_model_name}")
         self.embedding_model = SentenceTransformer(embedding_model_name)
-        self.vector_dim = self.embedding_model.get_sentence_embedding_dimension()
+        if hasattr(self.embedding_model, "get_embedding_dimension"):
+            self.vector_dim = self.embedding_model.get_embedding_dimension()
+        else:
+            self.vector_dim = self.embedding_model.get_sentence_embedding_dimension()
 
         # In-memory store for parent chunks: {parent_id: parent_text}
         self.parent_store: Dict[str, str] = {}
@@ -176,11 +179,11 @@ class VectorIndexer:
         start_time = time.perf_counter()
         query_vec = self.encode([query])[0]
 
-        results = self.client.search(
+        results = self.client.query_points(
             collection_name=self.collection_name,
-            query_vector=query_vec,
+            query=query_vec,
             limit=top_k
-        )
+        ).points
 
         search_latency_ms = (time.perf_counter() - start_time) * 1000.0
         retrieved: List[Dict[str, Any]] = []

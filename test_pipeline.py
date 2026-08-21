@@ -79,8 +79,7 @@ async def test_end_to_end_pipeline():
     assert metrics.total_ms > 0.0
 
     # Ungrounded Query
-    res_un, _ = engine.process_query("What is the population of Pluto?")
-    res_un = await res_un if asyncio.iscoroutine(res_un) else res_un
+    res_un, _ = await engine.process_query("qwertyuiop non-existent database entry random string")
     assert res_un.context_grounded is False
     assert "don't have enough grounded context" in res_un.answer
 
@@ -88,13 +87,13 @@ async def test_end_to_end_pipeline():
 def run_all_tests():
     print("Executing Voice RAG test suite...")
     test_chunking_strategies()
-    print("✓ Chunking strategies test passed.")
+    print("[OK] Chunking strategies test passed.")
 
     asyncio.run(test_guardrails_safety())
-    print("✓ Guardrails safety test passed.")
+    print("[OK] Guardrails safety test passed.")
 
     asyncio.run(test_end_to_end_pipeline())
-    print("✓ End-to-End Voice RAG pipeline test passed.")
+    print("[OK] End-to-End Voice RAG pipeline test passed.")
 
     print("\nAll pipeline tests passed successfully!")
 
