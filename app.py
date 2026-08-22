@@ -52,13 +52,13 @@ engine_instance = VoiceRAGEngine(indexer=indexer_instance, stt_client=stt_client
 
 
 class TextQueryRequest(BaseModel):
-    query: str = Field(..., example="What is the target latency for voice RAG pipelines?")
+    query: str = Field(..., json_schema_extra={"example": "What is the target latency for voice RAG pipelines?"})
     top_k: int = Field(default=2, ge=1, le=5)
 
 
 class IndexRequest(BaseModel):
     num_documents: int = Field(default=5, ge=1, le=50)
-    strategy: str = Field(default="hierarchical", example="hierarchical")
+    strategy: str = Field(default="hierarchical", json_schema_extra={"example": "hierarchical"})
 
 
 @app.on_event("startup")
@@ -1160,3 +1160,8 @@ async def voice_websocket_endpoint(websocket: WebSocket):
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
         await websocket.close()
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("app:app", host=settings.HOST, port=settings.PORT, reload=False)
