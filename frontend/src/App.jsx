@@ -108,7 +108,7 @@ export default function App() {
         </section>
 
         {/* 2. Voice RAG 4-Panel Console */}
-        <VoiceRAG defaultUseBackend={false} />
+        <VoiceRAG />
       </main>
 
       {/* Editorial Footer */}

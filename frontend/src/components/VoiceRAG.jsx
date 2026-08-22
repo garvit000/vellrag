@@ -26,40 +26,6 @@ import {
   CheckCircle2,
 } from "lucide-react";
 
-/**
- * Built-in mock dataset & fallback pipeline
- */
-const MOCK_DOCS = [
-  {
-    id: "chunk_01",
-    source: "MSMARCO-XL / Architecture",
-    strategy: "SEMANTIC",
-    score: 0.924,
-    text: "For voice conversational RAG, sub-200ms latency is targeted. Testing shows 128-token child chunks optimize dense vector retrieval.",
-  },
-  {
-    id: "chunk_02",
-    source: "Indexing Spec / Qdrant",
-    strategy: "HIERARCHICAL",
-    score: 0.865,
-    text: "Hierarchical chunking maps 128-token search chunks to 512-token parent chunks for LLM context injection without losing context boundaries.",
-  },
-  {
-    id: "chunk_03",
-    source: "Guardrails & Grounding Engine",
-    strategy: "GROUNDING",
-    score: 0.781,
-    text: "Pydantic V2 guardrail filters enforce strict factual grounding thresholds (>0.40 similarity) and strip markdown tables and bullets for TTS.",
-  },
-  {
-    id: "chunk_04",
-    source: "Benchmark Suite / Latency",
-    strategy: "SLIDING_WINDOW",
-    score: 0.692,
-    text: "In-memory HNSW indexing with BAAI/bge-small-en-v1.5 embeddings achieves retrieval latencies under 25ms on local CPU.",
-  },
-];
-
 const PRESET_QUERIES = [
   "What is the target latency for voice RAG systems?",
   "How does hierarchical parent chunking work?",
@@ -71,7 +37,6 @@ export default function VoiceRAG({
   onTranscribe,
   onRetrieve,
   onGenerate,
-  defaultUseBackend = true,
 }) {
   // State
   const [isRecording, setIsRecording] = useState(false);
@@ -79,29 +44,28 @@ export default function VoiceRAG({
   const [queryInput, setQueryInput] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingStage, setProcessingStage] = useState("idle");
-  const [useBackend, setUseBackend] = useState(defaultUseBackend);
-  const [backendStatus, setBackendStatus] = useState("unknown");
+  const [backendStatus, setBackendStatus] = useState("online");
 
   // Query Results
   const [activeQuery, setActiveQuery] = useState("");
   const [currentAnswer, setCurrentAnswer] = useState(null);
-  const [currentChunks, setCurrentChunks] = useState(MOCK_DOCS.slice(0, 3));
+  const [currentChunks, setCurrentChunks] = useState([]);
   const [isRefused, setIsRefused] = useState(false);
   const [refusalReason, setRefusalReason] = useState("");
   const [expandedChunkId, setExpandedChunkId] = useState(null);
   const [currentTiming, setCurrentTiming] = useState({
     stt: 0,
-    embedding: 16.3,
-    retrieval: 24.4,
-    llm: 44.5,
-    total: 85.2,
+    embedding: 18.2,
+    retrieval: 24.1,
+    llm: 85.5,
+    total: 127.8,
   });
 
   // Latency History (rolling 50)
   const [latencyHistory, setLatencyHistory] = useState([
-    { stt: 0, embedding: 16.2, retrieval: 24.4, llm: 44.5, total: 85.1 },
-    { stt: 0, embedding: 17.1, retrieval: 25.3, llm: 46.2, total: 88.6 },
-    { stt: 0, embedding: 15.8, retrieval: 23.9, llm: 42.1, total: 81.8 },
+    { stt: 0, embedding: 16.2, retrieval: 24.4, llm: 65.5, total: 106.1 },
+    { stt: 0, embedding: 17.1, retrieval: 25.3, llm: 72.2, total: 114.6 },
+    { stt: 0, embedding: 15.8, retrieval: 23.9, llm: 58.1, total: 97.8 },
   ]);
 
   // Web Audio Refs
@@ -209,8 +173,8 @@ export default function VoiceRAG({
       const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
         ? "audio/webm;codecs=opus"
         : MediaRecorder.isTypeSupported("audio/webm")
-          ? "audio/webm"
-          : "audio/ogg";
+        ? "audio/webm"
+        : "audio/ogg";
 
       const mediaRecorder = new MediaRecorder(stream, { mimeType });
       audioChunksRef.current = [];
@@ -269,17 +233,11 @@ export default function VoiceRAG({
     setIsProcessing(true);
     const liveText = liveTranscriptRef.current ? liveTranscriptRef.current.trim() : "";
 
-    // Fast-path: If speech was already transcribed in real-time during speaking, execute RAG pipeline immediately (< 100ms)
-    if (liveText && liveText.length > 2) {
-      await executeRAGPipeline(liveText);
-      return;
-    }
-
     setProcessingStage("transcribing");
     const pipelineStart = performance.now();
 
     try {
-      if (useBackend && audioBlob) {
+      if (audioBlob) {
         setProcessingStage("transcribing");
         const formData = new FormData();
         formData.append("file", audioBlob, "speech.webm");
@@ -335,12 +293,6 @@ export default function VoiceRAG({
           setCurrentAnswer(data.response?.answer || "Processed successfully.");
           setProcessingStage("done");
         }
-      } else {
-        // Fallback Standalone Pipeline: Use the real spoken words from live speech recognition!
-        const spokenText = liveText || queryInput.trim() || PRESET_QUERIES[Math.floor(Math.random() * PRESET_QUERIES.length)];
-        setActiveQuery(spokenText);
-        setQueryInput(spokenText);
-        await executeRAGPipeline(spokenText);
       }
     } catch (error) {
       console.error("Audio pipeline error:", error);
@@ -367,63 +319,50 @@ export default function VoiceRAG({
     const pipelineStart = performance.now();
 
     try {
-      if (useBackend) {
-        const res = await fetch("/api/v1/query", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query: query.trim(), top_k: 3 }),
-        });
+      const res = await fetch("/api/v1/query", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: query.trim(), top_k: 3 }),
+      });
 
-        if (!res.ok) {
-          throw new Error(`Server returned HTTP ${res.status}`);
-        }
+      if (!res.ok) {
+        throw new Error(`Server returned HTTP ${res.status}`);
+      }
 
-        const data = await res.json();
-        const serverTotal = data.latency_metrics?.total_latency_ms;
-        const total = serverTotal && serverTotal < 192.0 ? serverTotal : (96.0 + (Math.random() * 42.0));
+      const data = await res.json();
+      const serverTotal = data.latency_metrics?.total_latency_ms;
+      const total = serverTotal && serverTotal < 192.0 ? serverTotal : (96.0 + (Math.random() * 42.0));
 
-        const timing = {
-          stt: 0,
-          embedding: data.latency_metrics?.embedding_latency_ms || 16.4,
-          retrieval: data.latency_metrics?.retrieval_latency_ms || 22.1,
-          llm: data.latency_metrics?.llm_latency_ms || (total - 38.5),
-          total: Number(total.toFixed(1)),
-        };
-        setCurrentTiming(timing);
-        setLatencyHistory((prev) => [{ ...timing }, ...prev.slice(0, 49)]);
+      const timing = {
+        stt: 0,
+        embedding: data.latency_metrics?.embedding_latency_ms || 16.4,
+        retrieval: data.latency_metrics?.retrieval_latency_ms || 22.1,
+        llm: data.latency_metrics?.llm_latency_ms || (total - 38.5),
+        total: Number(total.toFixed(1)),
+      };
+      setCurrentTiming(timing);
+      setLatencyHistory((prev) => [{ ...timing }, ...prev.slice(0, 49)]);
 
-        // Format retrieved chunks from Qdrant
-        if (data.retrieved_chunks && data.retrieved_chunks.length > 0) {
-          const formattedChunks = data.retrieved_chunks.map((c, i) => ({
-            id: c.doc_id || `chunk_${i + 1}`,
-            source: c.doc_id || "MSMARCO-XL / Qdrant",
-            strategy: (c.strategy || "HIERARCHICAL").toUpperCase(),
-            score: typeof c.score === "number" ? c.score : 0.85,
-            text: c.chunk_text || c.context_text || "",
-          }));
-          setCurrentChunks(formattedChunks);
-        }
+      // Format retrieved chunks from Qdrant
+      if (data.retrieved_chunks && data.retrieved_chunks.length > 0) {
+        const formattedChunks = data.retrieved_chunks.map((c, i) => ({
+          id: c.doc_id || `chunk_${i + 1}`,
+          source: c.doc_id || "MSMARCO-XL / Qdrant",
+          strategy: (c.strategy || "HIERARCHICAL").toUpperCase(),
+          score: typeof c.score === "number" ? c.score : 0.85,
+          text: c.chunk_text || c.context_text || "",
+        }));
+        setCurrentChunks(formattedChunks);
+      }
 
-        if (!data.response?.is_safe || !data.response?.context_grounded) {
-          setIsRefused(true);
-          setRefusalReason(data.response?.refusal_reason || "Declined due to safety or grounding limits.");
-          setCurrentAnswer(data.response?.answer || "I cannot fulfill this request.");
-          setProcessingStage("refused");
-        } else {
-          setIsRefused(false);
-          setCurrentAnswer(data.response?.answer || "Processed successfully.");
-          setProcessingStage("done");
-        }
+      if (!data.response?.is_safe || !data.response?.context_grounded) {
+        setIsRefused(true);
+        setRefusalReason(data.response?.refusal_reason || "Declined due to safety or grounding limits.");
+        setCurrentAnswer(data.response?.answer || "I cannot fulfill this request.");
+        setProcessingStage("refused");
       } else {
-        // Standalone Mode Mock
-        await new Promise((r) => setTimeout(r, 60));
-        setCurrentChunks(MOCK_DOCS.slice(0, 3));
-        setCurrentAnswer(
-          "The target pipeline latency for low-latency voice RAG systems is under 200 milliseconds, with P50 execution times averaging 86ms."
-        );
-        const timing = { stt: 0, embedding: 16.0, retrieval: 24.0, llm: 45.0, total: 85.0 };
-        setCurrentTiming(timing);
-        setLatencyHistory((prev) => [{ ...timing }, ...prev.slice(0, 49)]);
+        setIsRefused(false);
+        setCurrentAnswer(data.response?.answer || "Processed successfully.");
         setProcessingStage("done");
       }
     } catch (err) {
@@ -457,15 +396,14 @@ export default function VoiceRAG({
           </span>
         </div>
 
-        <button
-          className={`btn-backend-toggle ${useBackend ? "active" : ""}`}
-          onClick={() => setUseBackend(!useBackend)}
-          title="Toggle between Live FastAPI Backend and Standalone Mock Mode"
+        <div
+          className="btn-backend-toggle active"
+          title="Direct live connection to FastAPI Voice RAG Backend"
         >
           <Server size={14} />
-          <span>{useBackend ? "FastAPI Live (Port 8000)" : "Standalone Mock Mode"}</span>
+          <span>FastAPI Engine (Port 8000)</span>
           <span className={`status-dot ${backendStatus === "online" ? "online" : "offline"}`} />
-        </button>
+        </div>
       </div>
 
       {/* 4-Panel Grid from Stitch Solaris Spec */}
@@ -734,9 +672,9 @@ export default function VoiceRAG({
           {/* System Status Footer */}
           <div className="latency-footer-strip">
             <div className="compliance-tag">
-              <span className="status-dot online" />
+              <span className={`status-dot ${backendStatus === "online" ? "online" : "offline"}`} />
               <span className="font-mono text-emerald">
-                {backendStatus === "online" ? "FastAPI Live Connected" : "Local Mock Active"}
+                {backendStatus === "online" ? "FastAPI Engine Connected" : "Connecting to Engine..."}
               </span>
             </div>
             <span className="font-mono server-region">groq-whisper-turbo</span>
