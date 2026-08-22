@@ -1,12 +1,18 @@
-"""
-Dataset Loader & Vector Indexing Engine using Qdrant and SentenceTransformers.
-Target Dataset: ai4bharat/MSMARCO-Xl with local fallback support.
-"""
+import os
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+os.environ["TORCH_NUM_THREADS"] = "1"
 
 import time
 import logging
 from typing import List, Dict, Any, Tuple, Optional
 import numpy as np
+import torch
+
+torch.set_num_threads(1)
+torch.set_grad_enabled(False)
+
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as qmodels
 from sentence_transformers import SentenceTransformer
@@ -94,8 +100,8 @@ class VectorIndexer:
         self.qdrant_host = qdrant_host
         self.client = QdrantClient(qdrant_host)
         
-        logger.info(f"Loading embedding model: {embedding_model_name}")
-        self.embedding_model = SentenceTransformer(embedding_model_name)
+        logger.info(f"Loading embedding model: {embedding_model_name} on CPU")
+        self.embedding_model = SentenceTransformer(embedding_model_name, device="cpu")
         if hasattr(self.embedding_model, "get_embedding_dimension"):
             self.vector_dim = self.embedding_model.get_embedding_dimension()
         else:

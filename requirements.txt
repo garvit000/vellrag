@@ -1,4 +1,4 @@
-# Core Dependencies for Voice-Enabled Low-Latency RAG System
+--extra-index-url https://download.pytorch.org/whl/cpu
 fastapi>=0.110.0
 uvicorn>=0.28.0
 pydantic>=2.6.0
@@ -12,5 +12,4 @@ websockets>=12.0
 python-dotenv>=1.0.0
 tenacity>=8.2.0
 numpy>=1.26.0
-torch>=2.2.0
 python-multipart>=0.0.9
