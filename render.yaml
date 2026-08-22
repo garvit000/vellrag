@@ -9,6 +9,8 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.9
+      - key: LIGHTWEIGHT_MODE
+        value: "true"
       - key: OMP_NUM_THREADS
         value: "1"
       - key: MKL_NUM_THREADS
