@@ -7,7 +7,7 @@ import logging
 from typing import Dict, Any, Optional
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 
 from config import settings
@@ -35,9 +35,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Global Engine Instance
+# Global Engine Instance with dynamic STT Client binding
+stt_client_instance = None
+if settings.SARVAM_API_KEY and not ("your_sarvam" in settings.SARVAM_API_KEY or settings.SARVAM_API_KEY.startswith("mock")):
+    stt_client_instance = SarvamSTTClient(api_key=settings.SARVAM_API_KEY)
+    logger.info("Initialized Sarvam AI STT Client.")
+elif settings.ELEVENLABS_API_KEY and not ("your_elevenlabs" in settings.ELEVENLABS_API_KEY or settings.ELEVENLABS_API_KEY.startswith("mock")):
+    stt_client_instance = ElevenLabsSTTClient(api_key=settings.ELEVENLABS_API_KEY)
+    logger.info("Initialized ElevenLabs STT Client.")
+else:
+    stt_client_instance = MockStreamingSTTClient()
+    logger.info("Initialized Mock Streaming STT Client.")
+
 indexer_instance = VectorIndexer()
-engine_instance = VoiceRAGEngine(indexer=indexer_instance)
+engine_instance = VoiceRAGEngine(indexer=indexer_instance, stt_client=stt_client_instance)
 
 
 class TextQueryRequest(BaseModel):
@@ -889,7 +900,72 @@ HTML_CONTENT = """<!DOCTYPE html>
             }
         }
 
+        let recognitionInstance = null;
+
         async function startVoiceStreaming() {
+            logToTerminal("Initializing Voice Microphone Stream...", 'info');
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+            if (SpeechRecognition) {
+                if (!recognitionInstance) {
+                    recognitionInstance = new SpeechRecognition();
+                    recognitionInstance.continuous = true;
+                    recognitionInstance.interimResults = true;
+                    recognitionInstance.lang = 'en-US';
+
+                    recognitionInstance.onstart = () => {
+                        isRecording = true;
+                        document.getElementById('btn-start-voice').classList.add('recording');
+                        document.getElementById('voice-stream-label').textContent = "Listening... Speak into your microphone!";
+                        logToTerminal("Microphone active! Listening to your voice...", 'success');
+                    };
+
+                    recognitionInstance.onresult = async (event) => {
+                        let finalTranscript = '';
+                        let interimTranscript = '';
+
+                        for (let i = event.resultIndex; i < event.results.length; ++i) {
+                            if (event.results[i].isFinal) {
+                                finalTranscript += event.results[i][0].transcript;
+                            } else {
+                                interimTranscript += event.results[i][0].transcript;
+                            }
+                        }
+
+                        if (interimTranscript) {
+                            document.getElementById('voice-stream-label').textContent = `Hearing: "${interimTranscript}"`;
+                        }
+
+                        if (finalTranscript) {
+                            logToTerminal(`Live Voice Transcribed: "${finalTranscript.trim()}"`, 'success');
+                            document.getElementById('voice-stream-label').textContent = `Transcribed: "${finalTranscript.trim()}"`;
+                            document.getElementById('text-query-input').value = finalTranscript.trim();
+                            await sendTextQuery();
+                        }
+                    };
+
+                    recognitionInstance.onerror = (event) => {
+                        logToTerminal(`Speech Recognition event: ${event.error}`, 'info');
+                    };
+
+                    recognitionInstance.onend = () => {
+                        if (isRecording) {
+                            try { recognitionInstance.start(); } catch(e) {}
+                        }
+                    };
+                }
+
+                try {
+                    recognitionInstance.start();
+                } catch (err) {
+                    logToTerminal(`Could not start speech recognition: ${err.message}`, 'error');
+                }
+            } else {
+                await startWebSocketAudioStreaming();
+            }
+        }
+
+        async function startWebSocketAudioStreaming() {
             logToTerminal("Establishing WebSocket voice connection...", 'info');
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             wsStream = new WebSocket(`${protocol}//${window.location.host}/ws/voice`);
@@ -902,7 +978,6 @@ HTML_CONTENT = """<!DOCTYPE html>
                     audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
                     const source = audioContext.createMediaStreamSource(mediaStream);
                     
-                    // Buffer size 4096, 1 input channel, 1 output channel
                     processor = audioContext.createScriptProcessor(4096, 1, 1);
                     source.connect(processor);
                     processor.connect(audioContext.destination);
@@ -910,8 +985,6 @@ HTML_CONTENT = """<!DOCTYPE html>
                     processor.onaudioprocess = (e) => {
                         if (wsStream && wsStream.readyState === WebSocket.OPEN) {
                             const inputData = e.inputBuffer.getChannelData(0);
-                            
-                            // Downsample/convert Float32 to Int16 PCM bytes
                             const pcmBuffer = new Int16Array(inputData.length);
                             for (let i = 0; i < inputData.length; i++) {
                                 pcmBuffer[i] = Math.max(-1, Math.min(1, inputData[i])) * 0x7FFF;
@@ -954,6 +1027,10 @@ HTML_CONTENT = """<!DOCTYPE html>
 
         async function stopVoiceStreaming() {
             logToTerminal("Stopping microphone capture...", 'info');
+            isRecording = false;
+            if (recognitionInstance) {
+                try { recognitionInstance.stop(); } catch(e) {}
+            }
             if (processor) {
                 processor.disconnect();
                 processor = null;
@@ -970,7 +1047,6 @@ HTML_CONTENT = """<!DOCTYPE html>
                 wsStream.close();
                 wsStream = null;
             }
-            isRecording = false;
             document.getElementById('btn-start-voice').classList.remove('recording');
             document.getElementById('voice-stream-label').textContent = "Click to start streaming microphone audio";
         }
@@ -982,6 +1058,11 @@ HTML_CONTENT = """<!DOCTYPE html>
 @app.get("/", response_class=HTMLResponse)
 async def serve_dashboard():
     return HTML_CONTENT
+
+
+@app.get("/favicon.ico")
+async def favicon():
+    return Response(status_code=204)
 
 
 @app.get("/health")
@@ -1018,7 +1099,7 @@ async def query_audio(file: UploadFile = File(...)):
 @app.post("/api/v1/index")
 async def trigger_indexing(req: IndexRequest):
     """Trigger document re-indexing into Qdrant."""
-    docs = load_msmarco_xl_dataset(limit=req.num_documents)
+    docs = load_msmarco_xl_dataset(limit=req.num_documents, fetch_remote=True)
     chunker = HierarchicalChunker(parent_size=512, child_size=128, overlap=32)
 
     parent_child_list = []

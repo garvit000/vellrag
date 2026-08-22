@@ -215,28 +215,30 @@ class VectorIndexer:
         return retrieved
 
 
-def load_msmarco_xl_dataset(limit: int = 10) -> List[Dict[str, str]]:
+def load_msmarco_xl_dataset(limit: int = 10, fetch_remote: bool = False) -> List[Dict[str, str]]:
     """
-    Attempts to load ai4bharat/MSMARCO-Xl from HuggingFace datasets library.
-    Falls back gracefully to pre-bundled MSMARCO documents if network/dataset unavailable.
+    Loads MSMARCO-XI documents.
+    By default (fetch_remote=False), returns pre-bundled sample documents instantly for sub-second app startup.
+    When fetch_remote=True, streams live documents from ai4bharat/MSMARCO-XI on HuggingFace.
     """
-    try:
-        from datasets import load_dataset
-        logger.info("Downloading/Loading ai4bharat/MSMARCO-Xl dataset sample...")
-        ds = load_dataset("ai4bharat/MSMARCO-Xl", name="english", split="train", streaming=True)
-        docs = []
-        for i, item in enumerate(ds):
-            if i >= limit:
-                break
-            docs.append({
-                "doc_id": f"msmarco_{i}",
-                "title": item.get("title", f"Document {i}"),
-                "text": item.get("passage", item.get("text", ""))
-            })
-        if docs:
-            logger.info(f"Loaded {len(docs)} documents from ai4bharat/MSMARCO-Xl.")
-            return docs
-    except Exception as e:
-        logger.warning(f"Could not load ai4bharat/MSMARCO-Xl via datasets ({e}). Utilizing sample documents.")
+    if fetch_remote:
+        try:
+            from datasets import load_dataset
+            logger.info("Downloading/Loading ai4bharat/MSMARCO-XI dataset sample from HuggingFace...")
+            ds = load_dataset("ai4bharat/MSMARCO-XI", name="default", split="train", streaming=True)
+            docs = []
+            for i, item in enumerate(ds):
+                if i >= limit:
+                    break
+                docs.append({
+                    "doc_id": f"msmarco_{i}",
+                    "title": item.get("title", f"Document {i}"),
+                    "text": item.get("passage", item.get("text", ""))
+                })
+            if docs:
+                logger.info(f"Loaded {len(docs)} documents from ai4bharat/MSMARCO-XI.")
+                return docs
+        except Exception as e:
+            logger.warning(f"Could not load ai4bharat/MSMARCO-XI via datasets ({e}). Utilizing sample documents.")
     
     return SAMPLE_MSMARCO_DOCUMENTS[:limit]
