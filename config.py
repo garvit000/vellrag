@@ -42,8 +42,8 @@ class SystemSettings(BaseSettings):
     BACKOFF_FACTOR: float = Field(default=0.2)
 
     # FastAPI Server
-    HOST: str = Field(default="0.0.0.0")
-    PORT: int = Field(default=8000)
+    HOST: str = Field(default_factory=lambda: os.getenv("HOST", "0.0.0.0"))
+    PORT: int = Field(default_factory=lambda: int(os.getenv("PORT", 8000)))
 
 
 settings = SystemSettings()

@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: vellrag-backend
+    env: python
+    region: oregon
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: GROQ_MODEL
+        value: openai/gpt-oss-20b
+      - key: GROUNDING_SIMILARITY_THRESHOLD
+        value: "0.60"
+      - key: TARGET_PIPELINE_LATENCY_MS
+        value: "200.0"
+      - key: GROQ_API_KEY
+        sync: false
+      - key: SARVAM_API_KEY
+        sync: false
+      - key: ELEVENLABS_API_KEY
+        sync: false
