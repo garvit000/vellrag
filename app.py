@@ -62,8 +62,16 @@ else:
     stt_client_instance = MockStreamingSTTClient()
     logger.info("Initialized Mock Streaming STT Client.")
 
-indexer_instance = VectorIndexer()
-engine_instance = VoiceRAGEngine(indexer=indexer_instance, stt_client=stt_client_instance)
+indexer_instance: Optional[VectorIndexer] = None
+engine_instance: Optional[VoiceRAGEngine] = None
+
+def get_engine() -> VoiceRAGEngine:
+    global indexer_instance, engine_instance
+    if engine_instance is None:
+        if indexer_instance is None:
+            indexer_instance = VectorIndexer()
+        engine_instance = VoiceRAGEngine(indexer=indexer_instance, stt_client=stt_client_instance)
+    return engine_instance
 
 
 class TextQueryRequest(BaseModel):
@@ -78,16 +86,20 @@ class IndexRequest(BaseModel):
 
 @app.on_event("startup")
 async def startup_event():
-    logger.info("Initializing vector index with sample MSMARCO documents on startup...")
-    docs = load_msmarco_xl_dataset(limit=5)
-    chunker = HierarchicalChunker(parent_size=512, child_size=128, overlap=32)
+    logger.info("FastAPI server bound port and started listening.")
+    try:
+        engine = get_engine()
+        docs = load_msmarco_xl_dataset(limit=5)
+        chunker = HierarchicalChunker(parent_size=512, child_size=128, overlap=32)
 
-    parent_child_list = []
-    for doc in docs:
-        parent_child_list.extend(chunker.chunk(doc["doc_id"], doc["text"]))
+        parent_child_list = []
+        for doc in docs:
+            parent_child_list.extend(chunker.chunk(doc["doc_id"], doc["text"]))
 
-    indexer_instance.index_parent_child_docs(parent_child_list)
-    logger.info("Startup indexing complete.")
+        engine.indexer.index_parent_child_docs(parent_child_list)
+        logger.info("Startup indexing complete.")
+    except Exception as e:
+        logger.warning(f"Startup initialization notice: {e}")
 HTML_CONTENT = """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1102,7 +1114,8 @@ def health_check():
 @app.post("/api/v1/query")
 async def query_text(req: TextQueryRequest):
     """REST Endpoint for text queries."""
-    response, metrics, chunks = await engine_instance.process_query(req.query, top_k=req.top_k, return_chunks=True)
+    engine = get_engine()
+    response, metrics, chunks = await engine.process_query(req.query, top_k=req.top_k, return_chunks=True)
     return {
         "query": req.query,
         "transcript": req.query,
@@ -1116,7 +1129,8 @@ async def query_text(req: TextQueryRequest):
 async def query_audio(file: UploadFile = File(...)):
     """REST Endpoint for audio file input."""
     audio_bytes = await file.read()
-    response, metrics, chunks, transcript = await engine_instance.process_audio(audio_bytes, return_chunks=True)
+    engine = get_engine()
+    response, metrics, chunks, transcript = await engine.process_audio(audio_bytes, return_chunks=True)
     return {
         "query": transcript,
         "transcript": transcript,
@@ -1136,7 +1150,8 @@ async def trigger_indexing(req: IndexRequest):
     for doc in docs:
         parent_child_list.extend(chunker.chunk(doc["doc_id"], doc["text"]))
 
-    indexer_instance.index_parent_child_docs(parent_child_list)
+    engine = get_engine()
+    engine.indexer.index_parent_child_docs(parent_child_list)
     return {"message": f"Successfully indexed {len(docs)} documents.", "chunks_indexed": len(parent_child_list)}
 
 
@@ -1167,7 +1182,8 @@ async def voice_websocket_endpoint(websocket: WebSocket):
 
                 # When buffer exceeds ~16KB (~0.5s audio chunk)
                 if len(audio_buffer) >= 16000:
-                    response, metrics = await engine_instance.process_audio(bytes(audio_buffer))
+                    engine = get_engine()
+                    response, metrics = await engine.process_audio(bytes(audio_buffer))
                     await websocket.send_json({
                         "event": "voice_response",
                         "response": response.model_dump(),
@@ -1178,7 +1194,8 @@ async def voice_websocket_endpoint(websocket: WebSocket):
             elif "text" in data:
                 # Handle text query over websocket
                 text_query = data["text"]
-                response, metrics = await engine_instance.process_query(text_query)
+                engine = get_engine()
+                response, metrics = await engine.process_query(text_query)
                 await websocket.send_json({
                     "event": "text_response",
                     "response": response.model_dump(),

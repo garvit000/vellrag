@@ -18,7 +18,7 @@ class SystemSettings(BaseSettings):
 
     # API Keys & Endpoints
     GROQ_API_KEY: str = Field(default_factory=lambda: os.getenv("GROQ_API_KEY", "mock_groq_key"))
-    GROQ_MODEL: str = Field(default="llama-3.1-8b-instant")
+    GROQ_MODEL: str = Field(default_factory=lambda: os.getenv("GROQ_MODEL", "openai/gpt-oss-20b"))
     SARVAM_API_KEY: Optional[str] = Field(default_factory=lambda: os.getenv("SARVAM_API_KEY"))
     ELEVENLABS_API_KEY: Optional[str] = Field(default_factory=lambda: os.getenv("ELEVENLABS_API_KEY"))
 
