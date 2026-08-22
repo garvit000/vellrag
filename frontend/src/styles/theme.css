@@ -1,0 +1,149 @@
+/**
+ * Solaris Pipeline / Stitch Design System Tokens
+ * Reference: projects/8077939738960097912
+ */
+
+:root {
+  /* Surface & Background */
+  --bg-night: #0a0806;
+  --background: #151310;
+  --surface: #151310;
+  --surface-dim: #151310;
+  --surface-bright: #3c3935;
+  --surface-container-lowest: #100e0b;
+  --surface-container-low: #1e1b18;
+  --surface-container: #221f1c;
+  --surface-container-high: #2c2926;
+  --surface-container-highest: #383431;
+  --surface-variant: #383431;
+
+  /* The Reveal & Ink */
+  --panel-cream: #f3ede1;
+  --panel-cream-dim: #e6e1d0;
+  --ink-black: #1c1712;
+  --ink-muted: #574c43;
+  --ink-edge: #ff2e63;
+
+  /* Primary Brand (Sunrise Coral) */
+  --primary: #ffb4a5;
+  --primary-container: #ff5a3c;
+  --on-primary: #650a00;
+  --on-primary-container: #5c0800;
+  --sunrise-coral: #ff5a3c;
+
+  /* Secondary Brand (Sunrise Amber) */
+  --secondary: #ffb952;
+  --secondary-container: #cd8800;
+  --on-secondary: #452b00;
+  --on-secondary-container: #422900;
+  --sunrise-amber: #ffb952;
+
+  /* Tertiary */
+  --tertiary: #cbc6bb;
+  --tertiary-container: #969288;
+  --on-tertiary: #333028;
+  --tertiary-fixed-dim: #cbc6bb;
+
+  /* Status & Alerts */
+  --error: #ffb4ab;
+  --error-container: #93000a;
+  --accent-emerald: #10b981;
+
+  /* Text & Outlines */
+  --on-surface: #e8e1dc;
+  --on-surface-variant: #e3beb7;
+  --outline: #aa8983;
+  --outline-variant: #5b403b;
+  --line: rgba(227, 190, 183, 0.15);
+  --line-strong: rgba(227, 190, 183, 0.3);
+
+  /* Typography Hierarchy */
+  --font-display: 'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-body: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+
+  /* Border Radii */
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 24px;
+  --radius-xl: 32px;
+  --radius-full: 9999px;
+
+  /* Shadows & Glows */
+  --shadow-card: 0 20px 50px -10px rgba(0, 0, 0, 0.7);
+  --glow-coral: 0 0 30px rgba(255, 90, 60, 0.35);
+  --glow-amber: 0 0 30px rgba(255, 185, 82, 0.3);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  scroll-behavior: smooth;
+  color-scheme: dark;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--on-surface);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  min-height: 100vh;
+  overflow-x: hidden;
+  line-height: 1.6;
+}
+
+/* Subtle Film Grain Noise */
+.noise-overlay {
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.03'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 99;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.font-mono {
+  font-family: var(--font-mono);
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  outline: none;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--surface-container-lowest);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(227, 190, 183, 0.2);
+  border-radius: var(--radius-full);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--primary-container);
+}
