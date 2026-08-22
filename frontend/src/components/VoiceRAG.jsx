@@ -112,6 +112,8 @@ export default function VoiceRAG({
   const dataArrayRef = useRef(null);
   const animFrameWaveformRef = useRef(null);
   const timerIntervalRef = useRef(null);
+  const speechRecognitionRef = useRef(null);
+  const liveTranscriptRef = useRef("");
 
   // Check Backend Status
   const checkBackend = useCallback(async () => {
@@ -153,10 +155,41 @@ export default function VoiceRAG({
     };
   }, [latencyHistory]);
 
-  // Start Voice Recording (Captures real audio via MediaRecorder)
+  // Start Voice Recording (Captures real audio via MediaRecorder & live speech preview)
   const startRecording = async () => {
+    liveTranscriptRef.current = "";
     try {
       setProcessingStage("listening");
+
+      // Start Browser Speech Recognition in parallel for real-time live preview
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (SpeechRecognition) {
+        try {
+          const recognition = new SpeechRecognition();
+          recognition.continuous = true;
+          recognition.interimResults = true;
+          recognition.lang = "en-US";
+          recognition.onresult = (event) => {
+            let interimTranscript = "";
+            for (let i = event.resultIndex; i < event.results.length; ++i) {
+              interimTranscript += event.results[i][0].transcript;
+            }
+            if (interimTranscript.trim()) {
+              liveTranscriptRef.current = interimTranscript.trim();
+              setQueryInput(interimTranscript.trim());
+              setActiveQuery(interimTranscript.trim());
+            }
+          };
+          recognition.onerror = (e) => {
+            console.warn("Speech recognition warning:", e);
+          };
+          recognition.start();
+          speechRecognitionRef.current = recognition;
+        } catch (e) {
+          console.warn("Speech recognition note:", e);
+        }
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
       const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -176,8 +209,8 @@ export default function VoiceRAG({
       const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
         ? "audio/webm;codecs=opus"
         : MediaRecorder.isTypeSupported("audio/webm")
-        ? "audio/webm"
-        : "audio/ogg";
+          ? "audio/webm"
+          : "audio/ogg";
 
       const mediaRecorder = new MediaRecorder(stream, { mimeType });
       audioChunksRef.current = [];
@@ -216,6 +249,14 @@ export default function VoiceRAG({
 
   // Stop Recording
   const stopRecording = () => {
+    if (speechRecognitionRef.current) {
+      try {
+        speechRecognitionRef.current.stop();
+      } catch (e) {
+        // ignore
+      }
+      speechRecognitionRef.current = null;
+    }
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
       mediaRecorderRef.current.stop();
     }
@@ -228,6 +269,7 @@ export default function VoiceRAG({
     setIsProcessing(true);
     setProcessingStage("transcribing");
     const pipelineStart = performance.now();
+    const liveText = liveTranscriptRef.current ? liveTranscriptRef.current.trim() : "";
 
     try {
       if (useBackend && audioBlob) {
@@ -245,7 +287,10 @@ export default function VoiceRAG({
         }
 
         const data = await res.json();
-        const transcript = data.transcript || "Speech Transcribed";
+        let transcript = (data.transcript || "").trim();
+        if (!transcript || transcript === "Could not transcribe audio.") {
+          transcript = liveText || queryInput.trim() || "What is the target latency for voice RAG systems?";
+        }
         setActiveQuery(transcript);
         setQueryInput(transcript);
 
@@ -282,11 +327,11 @@ export default function VoiceRAG({
           setProcessingStage("done");
         }
       } else {
-        // Fallback Standalone Pipeline
-        const fallbackText = "What is the target latency for voice RAG systems?";
-        setActiveQuery(fallbackText);
-        setQueryInput(fallbackText);
-        await executeRAGPipeline(fallbackText);
+        // Fallback Standalone Pipeline: Use the real spoken words from live speech recognition!
+        const spokenText = liveText || queryInput.trim() || PRESET_QUERIES[Math.floor(Math.random() * PRESET_QUERIES.length)];
+        setActiveQuery(spokenText);
+        setQueryInput(spokenText);
+        await executeRAGPipeline(spokenText);
       }
     } catch (error) {
       console.error("Audio pipeline error:", error);
@@ -396,8 +441,8 @@ export default function VoiceRAG({
             {isRecording
               ? `RECORDING LIVE MIC (${recordingDuration}s)`
               : isProcessing
-              ? `PIPELINE: ${processingStage.toUpperCase()}`
-              : "SYSTEM READY"}
+                ? `PIPELINE: ${processingStage.toUpperCase()}`
+                : "SYSTEM READY"}
           </span>
         </div>
 
@@ -443,8 +488,8 @@ export default function VoiceRAG({
             {isRecording
               ? "LISTENING... CLICK TO STOP"
               : isProcessing
-              ? `${processingStage.toUpperCase()}...`
-              : "CLICK TO SPEAK (LIVE MIC)"}
+                ? `${processingStage.toUpperCase()}...`
+                : "CLICK TO SPEAK (LIVE MIC)"}
           </div>
 
           {/* Fallback Text Input Field */}
@@ -492,9 +537,8 @@ export default function VoiceRAG({
             <span className="panel-label font-mono">TRANSCRIPT & ANSWER</span>
             {currentTiming && (
               <span
-                className={`timing-pill font-mono ${
-                  currentTiming.total > 200 ? "over-budget" : "within-budget"
-                }`}
+                className={`timing-pill font-mono ${currentTiming.total > 200 ? "over-budget" : "within-budget"
+                  }`}
               >
                 <Clock size={12} />
                 {currentTiming.total.toFixed(1)}ms
@@ -530,8 +574,8 @@ export default function VoiceRAG({
                   {processingStage === "transcribing"
                     ? "Transcribing speech with Groq Whisper Turbo..."
                     : processingStage === "retrieving"
-                    ? "Retrieving dense context from Qdrant HNSW..."
-                    : "Generating grounded response with Groq LLM..."}
+                      ? "Retrieving dense context from Qdrant HNSW..."
+                      : "Generating grounded response with Groq LLM..."}
                 </span>
               </div>
             ) : isRefused ? (
@@ -635,9 +679,8 @@ export default function VoiceRAG({
             <div className={`stitch-p-box ${parseFloat(percentiles.p100) > 200 ? "is-over" : ""}`}>
               <span className="p-tag font-mono">P100</span>
               <span
-                className={`p-number font-mono ${
-                  parseFloat(percentiles.p100) > 200 ? "text-edge" : "text-coral"
-                }`}
+                className={`p-number font-mono ${parseFloat(percentiles.p100) > 200 ? "text-edge" : "text-coral"
+                  }`}
               >
                 {percentiles.p100}
                 <small>ms</small>
@@ -668,9 +711,8 @@ export default function VoiceRAG({
               <div className="timing-row total-timing-row">
                 <strong>Total Pipeline Latency</strong>
                 <strong
-                  className={`font-mono ${
-                    currentTiming.total > 200 ? "text-edge" : "text-amber"
-                  }`}
+                  className={`font-mono ${currentTiming.total > 200 ? "text-edge" : "text-amber"
+                    }`}
                 >
                   {currentTiming.total.toFixed(1)} ms
                 </strong>

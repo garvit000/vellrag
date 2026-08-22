@@ -2,19 +2,27 @@
 FastAPI Web Server providing REST and WebSocket Endpoints for Voice RAG System.
 """
 
+import os
 import asyncio
 import logging
 from typing import Dict, Any, Optional
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, Response
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse, Response, FileResponse
 from pydantic import BaseModel, Field
 
 from config import settings
 from indexer import VectorIndexer, load_msmarco_xl_dataset
 from chunking import HierarchicalChunker
 from rag_harness import VoiceRAGEngine
-from stt_client import SarvamSTTClient, ElevenLabsSTTClient, MockStreamingSTTClient
+from stt_client import (
+    SarvamSTTClient,
+    ElevenLabsSTTClient,
+    MockStreamingSTTClient,
+    GroqWhisperSTTClient,
+    CompositeSTTClient,
+)
 from guardrails import GuardrailResponse
 from benchmark import LatencyBenchmark
 
@@ -36,13 +44,20 @@ app.add_middleware(
 )
 
 # Global Engine Instance with dynamic STT Client binding
-stt_client_instance = None
+stt_adapters = []
+if settings.GROQ_API_KEY and not settings.GROQ_API_KEY.startswith("mock"):
+    stt_adapters.append(GroqWhisperSTTClient(api_key=settings.GROQ_API_KEY))
+    logger.info("Added Groq Whisper Turbo STT Adapter.")
 if settings.SARVAM_API_KEY and not ("your_sarvam" in settings.SARVAM_API_KEY or settings.SARVAM_API_KEY.startswith("mock")):
-    stt_client_instance = SarvamSTTClient(api_key=settings.SARVAM_API_KEY)
-    logger.info("Initialized Sarvam AI STT Client.")
-elif settings.ELEVENLABS_API_KEY and not ("your_elevenlabs" in settings.ELEVENLABS_API_KEY or settings.ELEVENLABS_API_KEY.startswith("mock")):
-    stt_client_instance = ElevenLabsSTTClient(api_key=settings.ELEVENLABS_API_KEY)
-    logger.info("Initialized ElevenLabs STT Client.")
+    stt_adapters.append(SarvamSTTClient(api_key=settings.SARVAM_API_KEY))
+    logger.info("Added Sarvam AI STT Adapter.")
+if settings.ELEVENLABS_API_KEY and not ("your_elevenlabs" in settings.ELEVENLABS_API_KEY or settings.ELEVENLABS_API_KEY.startswith("mock")):
+    stt_adapters.append(ElevenLabsSTTClient(api_key=settings.ELEVENLABS_API_KEY))
+    logger.info("Added ElevenLabs STT Adapter.")
+
+if stt_adapters:
+    stt_client_instance = CompositeSTTClient(clients=stt_adapters)
+    logger.info(f"Initialized Composite STT Engine with {len(stt_adapters)} active adapter(s).")
 else:
     stt_client_instance = MockStreamingSTTClient()
     logger.info("Initialized Mock Streaming STT Client.")
@@ -1055,8 +1070,17 @@ HTML_CONTENT = """<!DOCTYPE html>
 </html>"""
 
 
+frontend_dist = os.path.join(os.path.dirname(__file__), "frontend", "dist")
+frontend_assets = os.path.join(frontend_dist, "assets")
+if os.path.exists(frontend_assets):
+    app.mount("/assets", StaticFiles(directory=frontend_assets), name="frontend_assets")
+
+
 @app.get("/", response_class=HTMLResponse)
 async def serve_dashboard():
+    index_file = os.path.join(frontend_dist, "index.html")
+    if os.path.exists(index_file):
+        return FileResponse(index_file)
     return HTML_CONTENT
 
 
@@ -1078,10 +1102,13 @@ def health_check():
 @app.post("/api/v1/query")
 async def query_text(req: TextQueryRequest):
     """REST Endpoint for text queries."""
-    response, metrics = await engine_instance.process_query(req.query, top_k=req.top_k)
+    response, metrics, chunks = await engine_instance.process_query(req.query, top_k=req.top_k, return_chunks=True)
     return {
+        "query": req.query,
+        "transcript": req.query,
         "response": response.model_dump(),
-        "latency_metrics": metrics.to_dict()
+        "latency_metrics": metrics.to_dict(),
+        "retrieved_chunks": chunks
     }
 
 
@@ -1089,10 +1116,13 @@ async def query_text(req: TextQueryRequest):
 async def query_audio(file: UploadFile = File(...)):
     """REST Endpoint for audio file input."""
     audio_bytes = await file.read()
-    response, metrics = await engine_instance.process_audio(audio_bytes)
+    response, metrics, chunks, transcript = await engine_instance.process_audio(audio_bytes, return_chunks=True)
     return {
+        "query": transcript,
+        "transcript": transcript,
         "response": response.model_dump(),
-        "latency_metrics": metrics.to_dict()
+        "latency_metrics": metrics.to_dict(),
+        "retrieved_chunks": chunks
     }
 
 

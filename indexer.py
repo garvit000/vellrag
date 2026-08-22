@@ -103,6 +103,7 @@ class VectorIndexer:
 
         # In-memory store for parent chunks: {parent_id: parent_text}
         self.parent_store: Dict[str, str] = {}
+        self._embed_cache: Dict[str, List[float]] = {}
         self._init_collection()
 
     def _init_collection(self):
@@ -125,11 +126,19 @@ class VectorIndexer:
         logger.info(f"Qdrant collection '{self.collection_name}' initialized with dim {self.vector_dim}.")
 
     def encode(self, texts: List[str]) -> List[List[float]]:
-        """Compute sentence embeddings."""
+        """Compute sentence embeddings with fast in-memory cache."""
         if not texts:
             return []
+
+        if len(texts) == 1 and texts[0] in self._embed_cache:
+            return [self._embed_cache[texts[0]]]
+
         embeddings = self.embedding_model.encode(texts, convert_to_numpy=True, normalize_embeddings=True)
-        return embeddings.tolist()
+        res = embeddings.tolist()
+        for t, vec in zip(texts, res):
+            if len(self._embed_cache) < 2000:
+                self._embed_cache[t] = vec
+        return res
 
     def index_chunks(self, chunks: List[Chunk]):
         """Embed and upsert chunks into Qdrant."""
